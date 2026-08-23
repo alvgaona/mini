@@ -1,12 +1,15 @@
 <column>
-  <row gap="8" padding="10" cross="center" window-drag="true">
+  <if test="{chromeVisible}">
+    <row gap="8" padding="10" cross="center" window-drag="true">
     <spacer width="62" />
     <button size="sm" variant="ghost" icon="chevron-left" label="Back" disabled="{backDisabled}" on-press="back" />
     <button size="sm" variant="ghost" icon="chevron-right" label="Forward" disabled="{forwardDisabled}" on-press="forward" />
     <button size="sm" variant="ghost" icon="refresh-cw" label="Reload" on-press="reload" />
     <text-field grow="1" size="sm" text="{addressText}" placeholder="Enter an address" label="Address" on-input="address_edit" on-submit="navigate" />
-  </row>
-  <row gap="4" padding="4" cross="center">
+    </row>
+  </if>
+  <if test="{chromeVisible}">
+    <row gap="4" padding="4" cross="center">
     <for each="tabRows" key="index" as="t">
       <if test="{t.active}">
         <button size="sm" variant="secondary" on-press="select_tab:{t.index}">{t.title}</button>
@@ -16,8 +19,9 @@
       </else>
       <button size="sm" variant="ghost" icon="x" label="Close tab" on-press="close_tab:{t.index}" />
     </for>
-    <button size="sm" variant="ghost" icon="plus" label="New tab" on-press="new_tab" />
-    <spacer grow="1" />
-  </row>
+      <button size="sm" variant="ghost" icon="plus" label="New tab" on-press="new_tab" />
+      <spacer grow="1" />
+    </row>
+  </if>
   <panel grow="1" label="page-pane" />
 </column>

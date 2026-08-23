@@ -9,7 +9,10 @@
     // bluetooth: the cross-device passkey flow's BLE proximity check -
     // packaged builds get NSBluetoothAlwaysUsageDescription from it.
     .permissions = .{ "view", "command", "bluetooth" },
-    .capabilities = .{ "native_views", "gpu_surfaces", "webview" },
+    .capabilities = .{ "native_views", "gpu_surfaces", "webview", "shortcuts" },
+    .shortcuts = .{
+        .{ .id = "mini.toggle-focus", .key = "f", .modifiers = .{ "primary", "shift" } },
+    },
     .shell = .{
         .windows = .{
             .{

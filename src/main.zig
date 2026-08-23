@@ -51,11 +51,12 @@ pub const Msg = union(enum) {
     new_tab,
     close_tab: usize,
     select_tab: usize,
+    toggle_focus,
     nav: platform.WebViewNavigationEvent,
     popup_opened: platform.WebViewPopupEvent,
     popup_closed: platform.WebViewPopupClosedEvent,
 
-    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed" };
+    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus" };
 };
 
 pub const Tab = struct {
@@ -117,13 +118,20 @@ pub const Model = struct {
     /// close and a create in the same frame can never alias.
     tab_serial: u64 = 0,
     address: canvas.TextBuffer(max_url_bytes) = .{},
+    /// Focus mode hides all chrome; the pane anchor grows to the whole
+    /// window and every tab re-snaps to it on the next frame.
+    focus: bool = false,
 
     /// Markup binds `tabRows`/`addressText` and the two disabled fns;
     /// the backing stores and selection bookkeeping are update-only.
-    pub const view_unbound = .{ "tabs", "address", "tab_serial", "tab_count", "active" };
+    pub const view_unbound = .{ "tabs", "address", "tab_serial", "tab_count", "active", "focus" };
 
     pub fn addressText(model: *const Model) []const u8 {
         return model.address.text();
+    }
+
+    pub fn chromeVisible(model: *const Model) bool {
+        return !model.focus;
     }
 
     pub fn backDisabled(model: *const Model) bool {
@@ -257,6 +265,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .reload => if (model.activeTab()) |tab| {
             tab.reload_token +%= 1;
         },
+        .toggle_focus => model.focus = !model.focus,
         .new_tab => openTab(model, home_url),
         .close_tab => |index| model.removeTab(index),
         .select_tab => |index| {
@@ -318,6 +327,13 @@ fn webPanes(model: *const Model, out: []MiniApp.WebViewPane) usize {
     return count;
 }
 
+pub const cmd_toggle_focus = "mini.toggle-focus"; // primary+shift+F
+
+pub fn command(name: []const u8) ?Msg {
+    if (std.mem.eql(u8, name, cmd_toggle_focus)) return .toggle_focus;
+    return null;
+}
+
 fn mapNavigation(nav: platform.WebViewNavigationEvent) ?Msg {
     if (nav.phase != .committed) return null;
     return .{ .nav = nav };
@@ -351,6 +367,7 @@ pub fn main(init: std.process.Init) !void {
         .canvas_label = canvas_label,
         .update_fx = update,
         .web_panes = webPanes,
+        .on_command = command,
         .on_web_pane_navigation = mapNavigation,
         .on_web_pane_popup = mapPopup,
         .on_web_pane_popup_closed = mapPopupClosed,

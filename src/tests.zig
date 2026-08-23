@@ -69,6 +69,19 @@ test "navigation reports update the tab and the address bar" {
     try std.testing.expectEqualStrings("https://example.com/deep", model.addressText());
 }
 
+test "focus mode toggles through the shortcut command" {
+    var fx = testFx();
+    defer fx.deinit();
+    var model = mini.initialModel();
+    try std.testing.expect(model.chromeVisible());
+    const msg = mini.command(mini.cmd_toggle_focus) orelse return error.TestUnexpectedResult;
+    mini.update(&model, msg, &fx);
+    try std.testing.expect(!model.chromeVisible());
+    mini.update(&model, msg, &fx);
+    try std.testing.expect(model.chromeVisible());
+    try std.testing.expectEqual(@as(?mini.Msg, null), mini.command("mini.unknown"));
+}
+
 test "popups adopt as tabs with an empty pane url and drop on close" {
     var fx = testFx();
     defer fx.deinit();
