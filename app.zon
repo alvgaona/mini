@@ -6,7 +6,9 @@
     .version = "0.1.0",
     .icons = .{"assets/icon.png"},
     .platforms = .{"macos"},
-    .permissions = .{ "view", "command" },
+    // bluetooth: the cross-device passkey flow's BLE proximity check -
+    // packaged builds get NSBluetoothAlwaysUsageDescription from it.
+    .permissions = .{ "view", "command", "bluetooth" },
     .capabilities = .{ "native_views", "gpu_surfaces", "webview" },
     .shell = .{
         .windows = .{
