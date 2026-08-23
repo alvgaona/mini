@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+
+# Native SDK
+.native/
+zig-out/
+.zig-cache/
+third_party/cef/
+
