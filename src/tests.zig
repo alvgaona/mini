@@ -115,6 +115,19 @@ test "cmd+w closes the active tab, then the app" {
     try std.testing.expectEqual(@as(usize, 1), model.tab_count);
 }
 
+test "history and tab-jump shortcuts map to their messages" {
+    const back = mini.command("mini.back") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(mini.Msg.back, back);
+    const forward = mini.command("mini.forward") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(mini.Msg.forward, forward);
+    const first = mini.command("mini.tab-1") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 0), first.select_tab);
+    const ninth = mini.command("mini.tab-9") orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqual(@as(usize, 8), ninth.select_tab);
+    try std.testing.expectEqual(@as(?mini.Msg, null), mini.command("mini.tab-0"));
+    try std.testing.expectEqual(@as(?mini.Msg, null), mini.command("mini.tab-10"));
+}
+
 test "focus mode toggles through the shortcut command" {
     var fx = testFx();
     defer fx.deinit();

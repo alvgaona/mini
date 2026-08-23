@@ -18,6 +18,17 @@
         // never runs - which is the point: tabs close first, the app
         // only when none remain.
         .{ .id = "mini.close-tab", .key = "w", .modifiers = .{"primary"} },
+        .{ .id = "mini.back", .key = "[", .modifiers = .{"primary"} },
+        .{ .id = "mini.forward", .key = "]", .modifiers = .{"primary"} },
+        .{ .id = "mini.tab-1", .key = "1", .modifiers = .{"primary"} },
+        .{ .id = "mini.tab-2", .key = "2", .modifiers = .{"primary"} },
+        .{ .id = "mini.tab-3", .key = "3", .modifiers = .{"primary"} },
+        .{ .id = "mini.tab-4", .key = "4", .modifiers = .{"primary"} },
+        .{ .id = "mini.tab-5", .key = "5", .modifiers = .{"primary"} },
+        .{ .id = "mini.tab-6", .key = "6", .modifiers = .{"primary"} },
+        .{ .id = "mini.tab-7", .key = "7", .modifiers = .{"primary"} },
+        .{ .id = "mini.tab-8", .key = "8", .modifiers = .{"primary"} },
+        .{ .id = "mini.tab-9", .key = "9", .modifiers = .{"primary"} },
     },
     .shell = .{
         .windows = .{

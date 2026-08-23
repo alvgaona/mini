@@ -420,6 +420,14 @@ pub fn command(name: []const u8) ?Msg {
     if (std.mem.eql(u8, name, cmd_toggle_focus)) return .toggle_focus;
     if (std.mem.eql(u8, name, cmd_new_tab)) return .new_tab;
     if (std.mem.eql(u8, name, cmd_close_tab)) return .close_active_tab;
+    if (std.mem.eql(u8, name, "mini.back")) return .back;
+    if (std.mem.eql(u8, name, "mini.forward")) return .forward;
+    // mini.tab-1 .. mini.tab-9 -> select_tab 0..8; out-of-range
+    // indices are already a select_tab no-op.
+    if (std.mem.startsWith(u8, name, "mini.tab-") and name.len == "mini.tab-".len + 1) {
+        const digit = name[name.len - 1];
+        if (digit >= '1' and digit <= '9') return .{ .select_tab = digit - '1' };
+    }
     return null;
 }
 
