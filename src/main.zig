@@ -14,7 +14,6 @@ const platform = native_sdk.platform;
 
 const canvas_label = "main-canvas";
 const page_anchor = "page-pane";
-pub const home_url = "https://example.com";
 pub const max_url_bytes = 2048;
 pub const max_tabs = 16;
 const max_label_bytes = 24;
@@ -146,6 +145,15 @@ pub const Model = struct {
         return !model.focus;
     }
 
+    /// Edge-triggered by the markup's autofocus: turns true when the
+    /// active tab is blank (startup, cmd+T), so the cursor lands in the
+    /// address bar ready to type.
+    pub fn addressWantsFocus(model: *const Model) bool {
+        if (model.tab_count == 0) return true;
+        const tab = &model.tabs[model.active];
+        return tab.url_len == 0 and tab.pending_len == 0;
+    }
+
     pub fn backDisabled(model: *const Model) bool {
         if (model.tab_count == 0) return true;
         return !model.tabs[model.active].can_go_back;
@@ -261,7 +269,7 @@ pub const Effects = native_sdk.Effects(Msg);
 /// scheme and navigates. Anything already carrying one passes through.
 pub fn normalizeUrl(input: []const u8, out: []u8) []const u8 {
     const trimmed = std.mem.trim(u8, input, " \t\r\n");
-    if (trimmed.len == 0) return copyInto(out, home_url);
+    if (trimmed.len == 0) return out[0..0];
 
     const schemes = [_][]const u8{ "http://", "https://", "file://", "about:", "data:" };
     const has_scheme = for (schemes) |scheme| {
@@ -301,6 +309,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             const tab = model.activeTab() orelse return;
             var scratch: [max_url_bytes]u8 = undefined;
             const url = normalizeUrl(model.address.text(), &scratch);
+            if (url.len == 0) return;
             tab.setPending(url);
             tab.setUrl(url);
             model.address.set(url);
@@ -324,7 +333,9 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             dropFavicon(&model.tabs[model.active], fx);
             model.removeTab(model.active);
         },
-        .new_tab => openTab(model, home_url),
+        // A new tab is nothing at all - no webview until an address is
+        // typed; the empty pane URL never creates.
+        .new_tab => openTab(model, ""),
         .close_tab => |index| {
             if (index < model.tab_count) dropFavicon(&model.tabs[index], fx);
             model.removeTab(index);
@@ -434,7 +445,7 @@ pub const app_markup = @embedFile("app.native");
 
 pub fn initialModel() Model {
     var model: Model = .{};
-    openTab(&model, home_url);
+    openTab(&model, "");
     return model;
 }
 

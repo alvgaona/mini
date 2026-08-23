@@ -5,7 +5,7 @@
     <button size="sm" variant="ghost" icon="chevron-left" label="Back" disabled="{backDisabled}" on-press="back" />
     <button size="sm" variant="ghost" icon="chevron-right" label="Forward" disabled="{forwardDisabled}" on-press="forward" />
     <button size="sm" variant="ghost" icon="refresh-cw" label="Reload" on-press="reload" />
-    <text-field grow="1" size="sm" text="{addressText}" placeholder="Enter an address" label="Address" on-input="address_edit" on-submit="navigate" />
+    <text-field grow="1" size="sm" text="{addressText}" placeholder="Enter an address" label="Address" autofocus="{addressWantsFocus}" on-input="address_edit" on-submit="navigate" />
     </row>
   </if>
   <if test="{chromeVisible}">

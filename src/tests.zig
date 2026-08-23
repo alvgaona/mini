@@ -11,10 +11,33 @@ test "normalizeUrl prefixes a bare host" {
     try std.testing.expectEqualStrings("https://example.com/a?b=c", mini.normalizeUrl("  example.com/a?b=c\n", &out));
 }
 
-test "normalizeUrl passes an explicit scheme through" {
+test "normalizeUrl passes an explicit scheme through and empties stay empty" {
     var out: [mini.max_url_bytes]u8 = undefined;
     try std.testing.expectEqualStrings("http://localhost:5173", mini.normalizeUrl("http://localhost:5173", &out));
     try std.testing.expectEqualStrings("about:blank", mini.normalizeUrl("about:blank", &out));
+    try std.testing.expectEqualStrings("", mini.normalizeUrl("   ", &out));
+}
+
+test "tabs open blank and the address bar wants focus" {
+    var fx = testFx();
+    defer fx.deinit();
+    var model = mini.initialModel();
+    // Startup and cmd+T tabs are nothing at all: no URL, so no webview
+    // pane is ever created, and the address bar asks for the cursor.
+    try std.testing.expectEqual(@as(usize, 0), model.tabs[0].url_len);
+    try std.testing.expect(model.addressWantsFocus());
+
+    model.address.set("example.com");
+    mini.update(&model, .navigate, &fx);
+    try std.testing.expectEqualStrings("https://example.com", model.tabs[0].pendingUrl());
+    try std.testing.expect(!model.addressWantsFocus());
+
+    // Submitting an empty address on a blank tab stays blank.
+    mini.update(&model, .new_tab, &fx);
+    model.address.clear();
+    mini.update(&model, .navigate, &fx);
+    try std.testing.expectEqual(@as(usize, 0), model.tabs[1].pending_len);
+    try std.testing.expect(model.addressWantsFocus());
 }
 
 test "tabs open, select, and close with unique labels" {
