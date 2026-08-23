@@ -18,6 +18,7 @@ pub const home_url = "https://example.com";
 pub const max_url_bytes = 2048;
 pub const max_tabs = 16;
 const max_label_bytes = 24;
+const max_host_bytes = 128;
 
 const window_width: f32 = 1180;
 const window_height: f32 = 760;
@@ -56,8 +57,9 @@ pub const Msg = union(enum) {
     nav: platform.WebViewNavigationEvent,
     popup_opened: platform.WebViewPopupEvent,
     popup_closed: platform.WebViewPopupClosedEvent,
+    favicon_loaded: native_sdk.EffectImageResult,
 
-    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab" };
+    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab", "favicon_loaded" };
 };
 
 pub const Tab = struct {
@@ -73,6 +75,11 @@ pub const Tab = struct {
     forward_token: u64 = 0,
     reload_token: u64 = 0,
     is_popup: bool = false,
+    /// Registered favicon ImageId; 0 draws nothing while loading or on
+    /// a miss. Keyed to the host so in-site navigation never refetches.
+    favicon_id: u64 = 0,
+    favicon_host_storage: [max_host_bytes]u8 = undefined,
+    favicon_host_len: usize = 0,
 
     pub fn label(tab: *const Tab) []const u8 {
         return tab.label_storage[0..tab.label_len];
@@ -109,6 +116,7 @@ pub const TabRow = struct {
     index: usize,
     title: []const u8,
     active: bool,
+    favicon: u64,
 };
 
 pub const Model = struct {
@@ -118,6 +126,9 @@ pub const Model = struct {
     /// Monotonic label serial: closed labels are never reused, so a
     /// close and a create in the same frame can never alias.
     tab_serial: u64 = 0,
+    /// Monotonic favicon ImageId (0 is the no-image sentinel): fresh
+    /// content never re-keys a live id.
+    favicon_serial: u64 = 1,
     address: canvas.TextBuffer(max_url_bytes) = .{},
     /// Focus mode hides all chrome; the pane anchor grows to the whole
     /// window and every tab re-snaps to it on the next frame.
@@ -125,7 +136,7 @@ pub const Model = struct {
 
     /// Markup binds `tabRows`/`addressText` and the two disabled fns;
     /// the backing stores and selection bookkeeping are update-only.
-    pub const view_unbound = .{ "tabs", "address", "tab_serial", "tab_count", "active", "focus" };
+    pub const view_unbound = .{ "tabs", "address", "tab_serial", "favicon_serial", "tab_count", "active", "focus" };
 
     pub fn addressText(model: *const Model) []const u8 {
         return model.address.text();
@@ -152,6 +163,7 @@ pub const Model = struct {
                 .index = index,
                 .title = tabTitle(tab),
                 .active = index == model.active,
+                .favicon = tab.favicon_id,
             };
         }
         return out;
@@ -196,6 +208,43 @@ pub const Model = struct {
         model.syncAddress();
     }
 };
+
+fn hostOf(url_text: []const u8) []const u8 {
+    const after_scheme = if (std.mem.indexOf(u8, url_text, "://")) |at| url_text[at + 3 ..] else url_text;
+    const end = std.mem.indexOfScalar(u8, after_scheme, '/') orelse after_scheme.len;
+    return after_scheme[0..end];
+}
+
+/// Load the tab's favicon when its host changes: the site's own
+/// /favicon.ico through the one-call image cascade (fetch, platform
+/// decode - CGImageSource reads .ico - register, cache). A miss leaves
+/// id 0 and the row simply shows no icon; no third-party icon service.
+/// ponytail: 16 image slots total, so a full window of distinct hosts
+/// fills the registry and later tabs go iconless - raise
+/// app.zon .images if that ever matters.
+fn ensureFavicon(model: *Model, tab: *Tab, fx: *Effects) void {
+    const host = hostOf(tab.url());
+    if (host.len == 0 or host.len > max_host_bytes) return;
+    if (std.mem.eql(u8, host, tab.favicon_host_storage[0..tab.favicon_host_len])) return;
+    @memcpy(tab.favicon_host_storage[0..host.len], host);
+    tab.favicon_host_len = host.len;
+    if (tab.favicon_id != 0) _ = fx.unregisterImage(tab.favicon_id);
+    tab.favicon_id = model.favicon_serial;
+    model.favicon_serial += 1;
+    var url_buffer: [max_host_bytes + 32]u8 = undefined;
+    const favicon_url = std.fmt.bufPrint(&url_buffer, "https://{s}/favicon.ico", .{host}) catch return;
+    fx.loadImage(.{
+        .id = tab.favicon_id,
+        .url = favicon_url,
+        .on_result = Effects.imageMsg(.favicon_loaded),
+    });
+}
+
+fn dropFavicon(tab: *Tab, fx: *Effects) void {
+    if (tab.favicon_id != 0) _ = fx.unregisterImage(tab.favicon_id);
+    tab.favicon_id = 0;
+    tab.favicon_host_len = 0;
+}
 
 /// A tab button carries the page's host, not the full URL.
 fn tabTitle(tab: *const Tab) []const u8 {
@@ -272,10 +321,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 fx.quitApp();
                 return;
             }
+            dropFavicon(&model.tabs[model.active], fx);
             model.removeTab(model.active);
         },
         .new_tab => openTab(model, home_url),
-        .close_tab => |index| model.removeTab(index),
+        .close_tab => |index| {
+            if (index < model.tab_count) dropFavicon(&model.tabs[index], fx);
+            model.removeTab(index);
+        },
         .select_tab => |index| {
             if (index >= model.tab_count) return;
             model.active = index;
@@ -289,6 +342,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             tab.can_go_back = nav.can_go_back;
             tab.can_go_forward = nav.can_go_forward;
             if (model.activeTab() == tab) model.address.set(tab.url());
+            ensureFavicon(model, tab, fx);
         },
         .popup_opened => |popup| {
             const tab = model.appendTab() orelse return;
@@ -301,11 +355,19 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         .popup_closed => |closed| {
             for (model.tabs[0..model.tab_count], 0..) |*tab, index| {
                 if (std.mem.eql(u8, tab.label(), closed.popup_label)) {
+                    dropFavicon(tab, fx);
                     model.removeTab(index);
                     return;
                 }
             }
         },
+        // The Msg exists so the loaded pixels trigger a rebuild; a miss
+        // or failure leaves the id skipped at draw, which renders as no
+        // icon - nothing to clear.
+        // The Msg exists so freshly registered pixels trigger a rebuild;
+        // a miss leaves the id skipped at draw - no icon, nothing to
+        // clear.
+        .favicon_loaded => {},
     }
 }
 
