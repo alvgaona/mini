@@ -69,6 +69,29 @@ test "navigation reports update the tab and the address bar" {
     try std.testing.expectEqualStrings("https://example.com/deep", model.addressText());
 }
 
+test "cmd+w closes the active tab, then the app" {
+    var fx = testFx();
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = mini.initialModel();
+    mini.update(&model, .new_tab, &fx);
+    try std.testing.expectEqual(@as(usize, 2), model.tab_count);
+
+    const close = mini.command(mini.cmd_close_tab) orelse return error.TestUnexpectedResult;
+    mini.update(&model, close, &fx);
+    try std.testing.expectEqual(@as(usize, 1), model.tab_count);
+    mini.update(&model, close, &fx);
+    try std.testing.expectEqual(@as(usize, 0), model.tab_count);
+    // With no tabs left the same chord asks the app to quit - the
+    // fake executor absorbs the effect, the model stays untouched.
+    mini.update(&model, close, &fx);
+    try std.testing.expectEqual(@as(usize, 0), model.tab_count);
+
+    const open = mini.command(mini.cmd_new_tab) orelse return error.TestUnexpectedResult;
+    mini.update(&model, open, &fx);
+    try std.testing.expectEqual(@as(usize, 1), model.tab_count);
+}
+
 test "focus mode toggles through the shortcut command" {
     var fx = testFx();
     defer fx.deinit();

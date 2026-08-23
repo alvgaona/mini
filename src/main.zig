@@ -52,11 +52,12 @@ pub const Msg = union(enum) {
     close_tab: usize,
     select_tab: usize,
     toggle_focus,
+    close_active_tab,
     nav: platform.WebViewNavigationEvent,
     popup_opened: platform.WebViewPopupEvent,
     popup_closed: platform.WebViewPopupClosedEvent,
 
-    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus" };
+    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab" };
 };
 
 pub const Tab = struct {
@@ -245,7 +246,6 @@ fn openTab(model: *Model, url: []const u8) void {
 }
 
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
-    _ = fx;
     switch (msg) {
         .address_edit => |edit| model.address.apply(edit),
         .navigate => {
@@ -266,6 +266,14 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             tab.reload_token +%= 1;
         },
         .toggle_focus => model.focus = !model.focus,
+        // Tabs absorb Cmd+W; the app itself only goes when none remain.
+        .close_active_tab => {
+            if (model.tab_count == 0) {
+                fx.quitApp();
+                return;
+            }
+            model.removeTab(model.active);
+        },
         .new_tab => openTab(model, home_url),
         .close_tab => |index| model.removeTab(index),
         .select_tab => |index| {
@@ -328,6 +336,8 @@ fn webPanes(model: *const Model, out: []MiniApp.WebViewPane) usize {
 }
 
 pub const cmd_toggle_focus = "mini.toggle-focus"; // primary+shift+F
+pub const cmd_new_tab = "mini.new-tab"; // primary+T
+pub const cmd_close_tab = "mini.close-tab"; // primary+W
 
 pub fn windowButtonsHidden(model: *const Model) bool {
     return model.focus;
@@ -335,6 +345,8 @@ pub fn windowButtonsHidden(model: *const Model) bool {
 
 pub fn command(name: []const u8) ?Msg {
     if (std.mem.eql(u8, name, cmd_toggle_focus)) return .toggle_focus;
+    if (std.mem.eql(u8, name, cmd_new_tab)) return .new_tab;
+    if (std.mem.eql(u8, name, cmd_close_tab)) return .close_active_tab;
     return null;
 }
 

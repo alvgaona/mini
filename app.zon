@@ -12,6 +12,12 @@
     .capabilities = .{ "native_views", "gpu_surfaces", "webview", "shortcuts" },
     .shortcuts = .{
         .{ .id = "mini.toggle-focus", .key = "f", .modifiers = .{ "primary", "shift" } },
+        .{ .id = "mini.new-tab", .key = "t", .modifiers = .{"primary"} },
+        // Cmd+W is ours: a registered shortcut is swallowed app-wide
+        // before the responder chain, so the window's own close-on-W
+        // never runs - which is the point: tabs close first, the app
+        // only when none remain.
+        .{ .id = "mini.close-tab", .key = "w", .modifiers = .{"primary"} },
     },
     .shell = .{
         .windows = .{
