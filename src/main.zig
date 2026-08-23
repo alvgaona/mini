@@ -329,6 +329,10 @@ fn webPanes(model: *const Model, out: []MiniApp.WebViewPane) usize {
 
 pub const cmd_toggle_focus = "mini.toggle-focus"; // primary+shift+F
 
+pub fn windowButtonsHidden(model: *const Model) bool {
+    return model.focus;
+}
+
 pub fn command(name: []const u8) ?Msg {
     if (std.mem.eql(u8, name, cmd_toggle_focus)) return .toggle_focus;
     return null;
@@ -368,6 +372,7 @@ pub fn main(init: std.process.Init) !void {
         .update_fx = update,
         .web_panes = webPanes,
         .on_command = command,
+        .window_buttons_hidden_fn = windowButtonsHidden,
         .on_web_pane_navigation = mapNavigation,
         .on_web_pane_popup = mapPopup,
         .on_web_pane_popup_closed = mapPopupClosed,
