@@ -402,7 +402,12 @@ fn webPanes(model: *const Model, out: []MiniApp.WebViewPane) usize {
             .reload_token = tab.reload_token,
             .back_token = tab.back_token,
             .forward_token = tab.forward_token,
-            .layer = if (index == model.active) 0 else -1,
+            // 1, not 0: the canvas sits at zPosition 0, and a webview
+            // RETURNING to 0 ties with it - the host breaks ties by
+            // subview order, which backgrounding inverted, leaving the
+            // page composited behind the opaque canvas. Strictly above
+            // beats tie-break archaeology.
+            .layer = if (index == model.active) 1 else -1,
         };
     }
     return count;
