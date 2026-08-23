@@ -57,3 +57,15 @@ upstream fix needed), and the CEF host has neither navigation events nor popups 
 
 Find-in-page, search-from-address-bar (addresses only), per-tab favicons/titles (tab titles are the
 page host), and session restore for tabs.
+
+## Passkeys
+
+Not possible in an embedded WKWebView without Apple's restricted
+`com.apple.developer.web-browser.public-key-credential` entitlement (granted to registered browser apps
+with provisioning — not to ad-hoc builds). Verified empirically: `isUserVerifyingPlatformAuthenticator-
+Available()` returns `false` inside mini and `navigator.credentials.get()` rejects instantly with no
+CTAP/Bluetooth activity — WebKit withholds every authenticator (Touch ID, iCloud passkeys, and the
+QR/phone hybrid sheet), and Google's "check Bluetooth" error page is its generic guess about the dead
+ceremony. Password + 2FA works. The `bluetooth` permission (NSBluetoothAlwaysUsageDescription in
+packaged builds) stays as groundwork for an entitled future. Sites that hard-require passkeys need the
+system browser.
