@@ -68,9 +68,10 @@ pub const Msg = union(enum) {
     nav: platform.WebViewNavigationEvent,
     popup_opened: platform.WebViewPopupEvent,
     popup_closed: platform.WebViewPopupClosedEvent,
+    load_progress: platform.WebViewLoadProgressEvent,
     favicon_loaded: native_sdk.EffectImageResult,
 
-    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab", "reopen_tab", "favicon_loaded", "focus_address", "zoom_in", "zoom_out", "zoom_reset", "copy_url", "find_toggle", "find_prev", "dismiss" };
+    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab", "reopen_tab", "favicon_loaded", "load_progress", "focus_address", "zoom_in", "zoom_out", "zoom_reset", "copy_url", "find_toggle", "find_prev", "dismiss" };
 };
 
 pub const Tab = struct {
@@ -87,6 +88,9 @@ pub const Tab = struct {
     reload_token: u64 = 0,
     is_popup: bool = false,
     zoom: f64 = 1.0,
+    /// Engine load fraction; 0 outside a load (the bar only shows
+    /// strictly between 0 and 1).
+    progress: f64 = 0,
     /// Registered favicon ImageId; 0 draws nothing while loading or on
     /// a miss. Keyed to the host so in-site navigation never refetches.
     favicon_id: u64 = 0,
@@ -189,6 +193,17 @@ pub const Model = struct {
 
     pub fn findText(model: *const Model) []const u8 {
         return model.find.text();
+    }
+
+    pub fn loading(model: *const Model) bool {
+        if (model.tab_count == 0) return false;
+        const p = model.tabs[model.active].progress;
+        return p > 0.0 and p < 1.0;
+    }
+
+    pub fn loadProgress(model: *const Model) f32 {
+        if (model.tab_count == 0) return 0;
+        return @floatCast(model.tabs[model.active].progress);
     }
 
     pub fn backDisabled(model: *const Model) bool {
@@ -447,6 +462,11 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         // Event slices are borrowed for this dispatch: copy everything
         // the model keeps.
+        .load_progress => |load| {
+            const tab = model.findTab(load.label) orelse return;
+            // 1.0 is the engine saying done: clear so the bar hides.
+            tab.progress = if (load.progress >= 0.999) 0 else load.progress;
+        },
         .nav => |nav| {
             const tab = model.findTab(nav.label) orelse return;
             tab.setUrl(nav.url);
@@ -567,6 +587,10 @@ fn mapPopupClosed(closed: platform.WebViewPopupClosedEvent) ?Msg {
     return .{ .popup_closed = closed };
 }
 
+fn mapLoadProgress(load: platform.WebViewLoadProgressEvent) ?Msg {
+    return .{ .load_progress = load };
+}
+
 // ------------------------------------------------------------------- view
 
 pub const AppUi = canvas.Ui(Msg);
@@ -592,6 +616,7 @@ pub fn main(init: std.process.Init) !void {
         .on_web_pane_navigation = mapNavigation,
         .on_web_pane_popup = mapPopup,
         .on_web_pane_popup_closed = mapPopupClosed,
+        .on_web_pane_load_progress = mapLoadProgress,
         .markup = .{ .source = app_markup, .watch_path = "src/app.native", .io = init.io },
     });
     defer app_state.destroy();

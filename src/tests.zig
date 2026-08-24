@@ -175,6 +175,24 @@ test "zoom clamps per tab and find tokens bump only while open" {
     try std.testing.expect(model.addressWantsFocus());
 }
 
+test "load progress follows the active tab and clears at done" {
+    var fx = testFx();
+    defer fx.deinit();
+    var model = mini.initialModel();
+    const label = model.tabs[0].label();
+    try std.testing.expect(!model.loading());
+    mini.update(&model, .{ .load_progress = .{ .label = label, .progress = 0.4 } }, &fx);
+    try std.testing.expect(model.loading());
+    try std.testing.expectApproxEqAbs(@as(f32, 0.4), model.loadProgress(), 0.001);
+    mini.update(&model, .{ .load_progress = .{ .label = label, .progress = 1.0 } }, &fx);
+    try std.testing.expect(!model.loading());
+
+    // A background tab's load never shows on the active tab's bar.
+    mini.update(&model, .new_tab, &fx);
+    mini.update(&model, .{ .load_progress = .{ .label = label, .progress = 0.5 } }, &fx);
+    try std.testing.expect(!model.loading());
+}
+
 test "history and tab-jump shortcuts map to their messages" {
     const back = mini.command("mini.back") orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(mini.Msg.back, back);

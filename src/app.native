@@ -33,6 +33,9 @@
       <spacer grow="1" />
     </row>
   </if>
+  <if test="{loading}">
+    <progress value="{loadProgress}" height="2" grow="1" label="Page loading" />
+  </if>
   <if test="{findOpen}">
     <row gap="6" padding="4" cross="center">
       <search-field grow="1" size="sm" text="{findText}" placeholder="Find in page" label="Find" autofocus="{findOpen}" on-input="find_edit" on-submit="find_next" />
