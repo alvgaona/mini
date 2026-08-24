@@ -609,6 +609,7 @@ pub fn main(init: std.process.Init) !void {
         .name = "mini",
         .scene = shell_scene,
         .canvas_label = canvas_label,
+        .theme_accent = runner.manifestThemeAccent(),
         .update_fx = update,
         .web_panes = webPanes,
         .on_command = command,

@@ -5,6 +5,9 @@
     .description = "A minimal personal web browser: one address bar, one Chromium page, no state.",
     .version = "0.1.0",
     .icons = .{"assets/icon.png"},
+    // Accent shows in exactly one place - the load bar - so this IS
+    // the progress color: macOS system blue.
+    .theme_accent = "#0a84ff",
     .platforms = .{"macos"},
     // bluetooth: the cross-device passkey flow's BLE proximity check -
     // packaged builds get NSBluetoothAlwaysUsageDescription from it.
