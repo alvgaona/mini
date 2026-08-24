@@ -12,8 +12,6 @@ NATIVE_SDK_PATH=~/git/native native check --strict
 ./scripts/release.sh          # packaged mini.app in zig-out/package/
 ```
 
-`zig` 0.16.0 is at `/opt/homebrew/bin/zig`, which some non-interactive shells miss.
-
 ## Documentation
 
 Zig has no rustdoc equivalent in practice, but this project follows the same rules:
