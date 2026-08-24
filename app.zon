@@ -18,6 +18,7 @@
         // never runs - which is the point: tabs close first, the app
         // only when none remain.
         .{ .id = "mini.close-tab", .key = "w", .modifiers = .{"primary"} },
+        .{ .id = "mini.reload", .key = "r", .modifiers = .{"primary"} },
         .{ .id = "mini.back", .key = "[", .modifiers = .{"primary"} },
         .{ .id = "mini.forward", .key = "]", .modifiers = .{"primary"} },
         .{ .id = "mini.tab-1", .key = "1", .modifiers = .{"primary"} },

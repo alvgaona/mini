@@ -425,6 +425,7 @@ pub fn command(name: []const u8) ?Msg {
     if (std.mem.eql(u8, name, cmd_toggle_focus)) return .toggle_focus;
     if (std.mem.eql(u8, name, cmd_new_tab)) return .new_tab;
     if (std.mem.eql(u8, name, cmd_close_tab)) return .close_active_tab;
+    if (std.mem.eql(u8, name, "mini.reload")) return .reload;
     if (std.mem.eql(u8, name, "mini.back")) return .back;
     if (std.mem.eql(u8, name, "mini.forward")) return .forward;
     // mini.tab-1 .. mini.tab-9 -> select_tab 0..8; out-of-range
