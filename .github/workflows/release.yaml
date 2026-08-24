@@ -32,11 +32,13 @@ jobs:
 
       - name: build fork cli
         working-directory: native
-        run: "$HOME/.native/toolchains"/zig-*/zig build cli
+        run: |
+          "$HOME"/.native/toolchains/zig-*/zig build cli
 
       - name: package
         working-directory: mini
-        run: "$GITHUB_WORKSPACE/native/zig-out/bin/native" package --target macos --signing adhoc --web-engine system
+        run: |
+          "$GITHUB_WORKSPACE"/native/zig-out/bin/native package --target macos --signing adhoc --web-engine system
 
       - name: zip
         working-directory: mini
