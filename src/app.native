@@ -33,5 +33,13 @@
       <spacer grow="1" />
     </row>
   </if>
+  <if test="{findOpen}">
+    <row gap="6" padding="4" cross="center">
+      <search-field grow="1" size="sm" text="{findText}" placeholder="Find in page" label="Find" autofocus="{findOpen}" on-input="find_edit" on-submit="find_next" />
+      <button size="sm" variant="ghost" icon="chevron-up" label="Previous match" on-press="find_prev" />
+      <button size="sm" variant="ghost" icon="chevron-down" label="Next match" on-press="find_next" />
+      <button size="sm" variant="ghost" icon="x" label="Close find" on-press="dismiss" />
+    </row>
+  </if>
   <panel grow="1" label="page-pane" />
 </column>

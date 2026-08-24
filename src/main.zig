@@ -55,12 +55,22 @@ pub const Msg = union(enum) {
     toggle_focus,
     close_active_tab,
     reopen_tab,
+    focus_address,
+    zoom_in,
+    zoom_out,
+    zoom_reset,
+    copy_url,
+    find_toggle,
+    find_edit: canvas.TextInputEvent,
+    find_next,
+    find_prev,
+    dismiss,
     nav: platform.WebViewNavigationEvent,
     popup_opened: platform.WebViewPopupEvent,
     popup_closed: platform.WebViewPopupClosedEvent,
     favicon_loaded: native_sdk.EffectImageResult,
 
-    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab", "reopen_tab", "favicon_loaded" };
+    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab", "reopen_tab", "favicon_loaded", "focus_address", "zoom_in", "zoom_out", "zoom_reset", "copy_url", "find_toggle", "find_prev", "dismiss" };
 };
 
 pub const Tab = struct {
@@ -76,6 +86,7 @@ pub const Tab = struct {
     forward_token: u64 = 0,
     reload_token: u64 = 0,
     is_popup: bool = false,
+    zoom: f64 = 1.0,
     /// Registered favicon ImageId; 0 draws nothing while loading or on
     /// a miss. Keyed to the host so in-site navigation never refetches.
     favicon_id: u64 = 0,
@@ -140,10 +151,19 @@ pub const Model = struct {
     closed_storage: [max_closed][max_url_bytes]u8 = undefined,
     closed_lens: [max_closed]usize = @splat(0),
     closed_count: usize = 0,
+    /// cmd+L. Edge-triggered by autofocus; cleared by typing,
+    /// navigating, or switching tabs. ponytail: cmd+L after clicking
+    /// into the page without typing leaves the flag stale-true and the
+    /// second press does nothing - a blur signal would fix it.
+    address_focus_requested: bool = false,
+    find_open: bool = false,
+    find: canvas.TextBuffer(256) = .{},
+    find_forward_token: u64 = 0,
+    find_backward_token: u64 = 0,
 
     /// Markup binds `tabRows`/`addressText` and the two disabled fns;
     /// the backing stores and selection bookkeeping are update-only.
-    pub const view_unbound = .{ "tabs", "address", "tab_serial", "favicon_serial", "tab_count", "active", "focus", "closed_storage", "closed_lens", "closed_count" };
+    pub const view_unbound = .{ "tabs", "address", "tab_serial", "favicon_serial", "tab_count", "active", "focus", "closed_storage", "closed_lens", "closed_count", "address_focus_requested", "find", "find_open", "find_forward_token", "find_backward_token" };
 
     pub fn addressText(model: *const Model) []const u8 {
         return model.address.text();
@@ -157,9 +177,18 @@ pub const Model = struct {
     /// active tab is blank (startup, cmd+T), so the cursor lands in the
     /// address bar ready to type.
     pub fn addressWantsFocus(model: *const Model) bool {
+        if (model.address_focus_requested) return true;
         if (model.tab_count == 0) return true;
         const tab = &model.tabs[model.active];
         return tab.url_len == 0 and tab.pending_len == 0;
+    }
+
+    pub fn findOpen(model: *const Model) bool {
+        return model.find_open;
+    }
+
+    pub fn findText(model: *const Model) []const u8 {
+        return model.find.text();
     }
 
     pub fn backDisabled(model: *const Model) bool {
@@ -329,12 +358,16 @@ fn openTab(model: *Model, url: []const u8) void {
 
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     switch (msg) {
-        .address_edit => |edit| model.address.apply(edit),
+        .address_edit => |edit| {
+            model.address_focus_requested = false;
+            model.address.apply(edit);
+        },
         .navigate => {
             const tab = model.activeTab() orelse return;
             var scratch: [max_url_bytes]u8 = undefined;
             const url = normalizeUrl(model.address.text(), &scratch);
             if (url.len == 0) return;
+            model.address_focus_requested = false;
             tab.setPending(url);
             tab.setUrl(url);
             model.address.set(url);
@@ -378,8 +411,39 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
         },
         .select_tab => |index| {
             if (index >= model.tab_count) return;
+            model.address_focus_requested = false;
             model.active = index;
             model.syncAddress();
+        },
+        .focus_address => model.address_focus_requested = true,
+        .zoom_in => if (model.activeTab()) |tab| {
+            tab.zoom = @min(tab.zoom + 0.25, 5.0);
+        },
+        .zoom_out => if (model.activeTab()) |tab| {
+            tab.zoom = @max(tab.zoom - 0.25, 0.25);
+        },
+        .zoom_reset => if (model.activeTab()) |tab| {
+            tab.zoom = 1.0;
+        },
+        .copy_url => if (model.activeTab()) |tab| {
+            if (tab.url_len > 0) fx.writeClipboard(.{ .key = 1, .text = tab.url() });
+        },
+        .find_toggle => {
+            model.find_open = !model.find_open;
+            if (!model.find_open) model.find.clear();
+        },
+        .find_edit => |edit| model.find.apply(edit),
+        .find_next => {
+            if (!model.find_open) return;
+            model.find_forward_token +%= 1;
+        },
+        .find_prev => {
+            if (!model.find_open) return;
+            model.find_backward_token +%= 1;
+        },
+        .dismiss => {
+            model.find_open = false;
+            model.find.clear();
         },
         // Event slices are borrowed for this dispatch: copy everything
         // the model keeps.
@@ -444,6 +508,10 @@ fn webPanes(model: *const Model, out: []MiniApp.WebViewPane) usize {
             // page composited behind the opaque canvas. Strictly above
             // beats tie-break archaeology.
             .layer = if (index == model.active) 1 else -1,
+            .zoom = tab.zoom,
+            .find_query = if (index == model.active and model.find_open) model.find.text() else "",
+            .find_forward_token = model.find_forward_token,
+            .find_backward_token = model.find_backward_token,
         };
     }
     return count;
@@ -453,6 +521,8 @@ pub const cmd_toggle_focus = "mini.toggle-focus"; // primary+shift+F
 pub const cmd_new_tab = "mini.new-tab"; // primary+T
 pub const cmd_close_tab = "mini.close-tab"; // primary+W
 pub const cmd_reopen_tab = "mini.reopen-tab"; // primary+shift+T
+pub const cmd_focus_address = "mini.focus-address"; // primary+L
+pub const cmd_find = "mini.find"; // primary+F
 
 pub fn windowButtonsHidden(model: *const Model) bool {
     return model.focus;
@@ -463,6 +533,15 @@ pub fn command(name: []const u8) ?Msg {
     if (std.mem.eql(u8, name, cmd_new_tab)) return .new_tab;
     if (std.mem.eql(u8, name, cmd_close_tab)) return .close_active_tab;
     if (std.mem.eql(u8, name, cmd_reopen_tab)) return .reopen_tab;
+    if (std.mem.eql(u8, name, cmd_focus_address)) return .focus_address;
+    if (std.mem.eql(u8, name, "mini.zoom-in")) return .zoom_in;
+    if (std.mem.eql(u8, name, "mini.zoom-out")) return .zoom_out;
+    if (std.mem.eql(u8, name, "mini.zoom-reset")) return .zoom_reset;
+    if (std.mem.eql(u8, name, "mini.copy-url")) return .copy_url;
+    if (std.mem.eql(u8, name, cmd_find)) return .find_toggle;
+    if (std.mem.eql(u8, name, "mini.find-next")) return .find_next;
+    if (std.mem.eql(u8, name, "mini.find-prev")) return .find_prev;
+    if (std.mem.eql(u8, name, "mini.dismiss")) return .dismiss;
     if (std.mem.eql(u8, name, "mini.reload")) return .reload;
     if (std.mem.eql(u8, name, "mini.back")) return .back;
     if (std.mem.eql(u8, name, "mini.forward")) return .forward;

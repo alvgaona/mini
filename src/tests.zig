@@ -147,6 +147,34 @@ test "cmd+shift+t reopens closed tabs, newest first, session only" {
     try std.testing.expectEqual(@as(usize, 2), model.tab_count);
 }
 
+test "zoom clamps per tab and find tokens bump only while open" {
+    var fx = testFx();
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = mini.initialModel();
+    mini.update(&model, .zoom_out, &fx);
+    mini.update(&model, .zoom_out, &fx);
+    mini.update(&model, .zoom_out, &fx);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), model.tabs[0].zoom, 0.001);
+    mini.update(&model, .zoom_reset, &fx);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), model.tabs[0].zoom, 0.001);
+
+    // find_next outside an open find bar is inert; inside it bumps.
+    const token_before = model.find_forward_token;
+    mini.update(&model, .find_next, &fx);
+    try std.testing.expectEqual(token_before, model.find_forward_token);
+    mini.update(&model, .find_toggle, &fx);
+    mini.update(&model, .find_next, &fx);
+    try std.testing.expectEqual(token_before + 1, model.find_forward_token);
+    mini.update(&model, .dismiss, &fx);
+    try std.testing.expect(!model.findOpen());
+    try std.testing.expectEqual(@as(usize, 0), model.find.text().len);
+
+    // cmd+L requests focus; typing clears the request.
+    mini.update(&model, .focus_address, &fx);
+    try std.testing.expect(model.addressWantsFocus());
+}
+
 test "history and tab-jump shortcuts map to their messages" {
     const back = mini.command("mini.back") orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(mini.Msg.back, back);
