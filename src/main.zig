@@ -16,6 +16,7 @@ const canvas_label = "main-canvas";
 const page_anchor = "page-pane";
 pub const max_url_bytes = 2048;
 pub const max_tabs = 16;
+pub const max_closed = 8;
 const max_label_bytes = 24;
 const max_host_bytes = 128;
 
@@ -53,12 +54,13 @@ pub const Msg = union(enum) {
     select_tab: usize,
     toggle_focus,
     close_active_tab,
+    reopen_tab,
     nav: platform.WebViewNavigationEvent,
     popup_opened: platform.WebViewPopupEvent,
     popup_closed: platform.WebViewPopupClosedEvent,
     favicon_loaded: native_sdk.EffectImageResult,
 
-    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab", "favicon_loaded" };
+    pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab", "reopen_tab", "favicon_loaded" };
 };
 
 pub const Tab = struct {
@@ -132,10 +134,16 @@ pub const Model = struct {
     /// Focus mode hides all chrome; the pane anchor grows to the whole
     /// window and every tab re-snaps to it on the next frame.
     focus: bool = false,
+    /// Session-only reopen stack (cmd+shift+T): the last few closed
+    /// tabs' URLs, newest last, gone when the app is. Blank tabs and
+    /// popups never push - there is nothing honest to restore.
+    closed_storage: [max_closed][max_url_bytes]u8 = undefined,
+    closed_lens: [max_closed]usize = @splat(0),
+    closed_count: usize = 0,
 
     /// Markup binds `tabRows`/`addressText` and the two disabled fns;
     /// the backing stores and selection bookkeeping are update-only.
-    pub const view_unbound = .{ "tabs", "address", "tab_serial", "favicon_serial", "tab_count", "active", "focus" };
+    pub const view_unbound = .{ "tabs", "address", "tab_serial", "favicon_serial", "tab_count", "active", "focus", "closed_storage", "closed_lens", "closed_count" };
 
     pub fn addressText(model: *const Model) []const u8 {
         return model.address.text();
@@ -203,6 +211,23 @@ pub const Model = struct {
         tab.* = .{};
         model.tab_count += 1;
         return tab;
+    }
+
+    fn rememberClosed(model: *Model, tab: *const Tab) void {
+        if (tab.is_popup) return;
+        const url_text = if (tab.url_len > 0) tab.url() else tab.pendingUrl();
+        if (url_text.len == 0) return;
+        if (model.closed_count == max_closed) {
+            for (1..max_closed) |i| {
+                const len = model.closed_lens[i];
+                @memcpy(model.closed_storage[i - 1][0..len], model.closed_storage[i][0..len]);
+                model.closed_lens[i - 1] = len;
+            }
+            model.closed_count -= 1;
+        }
+        @memcpy(model.closed_storage[model.closed_count][0..url_text.len], url_text);
+        model.closed_lens[model.closed_count] = url_text.len;
+        model.closed_count += 1;
     }
 
     fn removeTab(model: *Model, index: usize) void {
@@ -330,14 +355,25 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 fx.quitApp();
                 return;
             }
+            model.rememberClosed(&model.tabs[model.active]);
             dropFavicon(&model.tabs[model.active], fx);
             model.removeTab(model.active);
         },
         // A new tab is nothing at all - no webview until an address is
         // typed; the empty pane URL never creates.
         .new_tab => openTab(model, ""),
+        .reopen_tab => {
+            if (model.closed_count == 0) return;
+            model.closed_count -= 1;
+            const len = model.closed_lens[model.closed_count];
+            var url_buffer: [max_url_bytes]u8 = undefined;
+            @memcpy(url_buffer[0..len], model.closed_storage[model.closed_count][0..len]);
+            openTab(model, url_buffer[0..len]);
+        },
         .close_tab => |index| {
-            if (index < model.tab_count) dropFavicon(&model.tabs[index], fx);
+            if (index >= model.tab_count) return;
+            model.rememberClosed(&model.tabs[index]);
+            dropFavicon(&model.tabs[index], fx);
             model.removeTab(index);
         },
         .select_tab => |index| {
@@ -416,6 +452,7 @@ fn webPanes(model: *const Model, out: []MiniApp.WebViewPane) usize {
 pub const cmd_toggle_focus = "mini.toggle-focus"; // primary+shift+F
 pub const cmd_new_tab = "mini.new-tab"; // primary+T
 pub const cmd_close_tab = "mini.close-tab"; // primary+W
+pub const cmd_reopen_tab = "mini.reopen-tab"; // primary+shift+T
 
 pub fn windowButtonsHidden(model: *const Model) bool {
     return model.focus;
@@ -425,6 +462,7 @@ pub fn command(name: []const u8) ?Msg {
     if (std.mem.eql(u8, name, cmd_toggle_focus)) return .toggle_focus;
     if (std.mem.eql(u8, name, cmd_new_tab)) return .new_tab;
     if (std.mem.eql(u8, name, cmd_close_tab)) return .close_active_tab;
+    if (std.mem.eql(u8, name, cmd_reopen_tab)) return .reopen_tab;
     if (std.mem.eql(u8, name, "mini.reload")) return .reload;
     if (std.mem.eql(u8, name, "mini.back")) return .back;
     if (std.mem.eql(u8, name, "mini.forward")) return .forward;

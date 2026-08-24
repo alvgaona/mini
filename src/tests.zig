@@ -115,6 +115,38 @@ test "cmd+w closes the active tab, then the app" {
     try std.testing.expectEqual(@as(usize, 1), model.tab_count);
 }
 
+test "cmd+shift+t reopens closed tabs, newest first, session only" {
+    var fx = testFx();
+    defer fx.deinit();
+    fx.executor = .fake;
+    var model = mini.initialModel();
+    model.address.set("example.com");
+    mini.update(&model, .navigate, &fx);
+    mini.update(&model, .new_tab, &fx);
+    model.address.set("rewire.run");
+    mini.update(&model, .navigate, &fx);
+
+    const close = mini.command(mini.cmd_close_tab) orelse return error.TestUnexpectedResult;
+    mini.update(&model, close, &fx); // closes rewire.run
+    mini.update(&model, close, &fx); // closes example.com
+    try std.testing.expectEqual(@as(usize, 0), model.tab_count);
+
+    const reopen = mini.command(mini.cmd_reopen_tab) orelse return error.TestUnexpectedResult;
+    mini.update(&model, reopen, &fx);
+    try std.testing.expectEqualStrings("https://example.com", model.tabs[0].pendingUrl());
+    mini.update(&model, reopen, &fx);
+    try std.testing.expectEqualStrings("https://rewire.run", model.tabs[1].pendingUrl());
+
+    // Nothing left to restore: a further reopen is a no-op, and a
+    // closed BLANK tab never pushed in the first place.
+    mini.update(&model, reopen, &fx);
+    try std.testing.expectEqual(@as(usize, 2), model.tab_count);
+    mini.update(&model, .new_tab, &fx);
+    mini.update(&model, close, &fx);
+    mini.update(&model, reopen, &fx);
+    try std.testing.expectEqual(@as(usize, 2), model.tab_count);
+}
+
 test "history and tab-jump shortcuts map to their messages" {
     const back = mini.command("mini.back") orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(mini.Msg.back, back);
