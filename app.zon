@@ -1,0 +1,41 @@
+.{
+    .id = "dev.native_sdk.mini",
+    .name = "mini",
+    .display_name = "Mini",
+    .description = "A minimal personal web browser: one address bar, one Chromium page, no state.",
+    .version = "0.1.0",
+    .icons = .{"assets/icon.png"},
+    .platforms = .{"macos"},
+    .permissions = .{ "view", "command" },
+    .capabilities = .{ "native_views", "gpu_surfaces", "webview" },
+    .shell = .{
+        .windows = .{
+            .{
+                .label = "main",
+                .title = "Mini",
+                .width = 1180,
+                .height = 760,
+                .min_width = 640,
+                .min_height = 420,
+                .restore_state = true,
+                .restore_policy = "clamp_to_visible_screen",
+                .titlebar = "hidden_inset",
+                .views = .{
+                    .{ .label = "main-canvas", .kind = "gpu_surface", .fill = true, .role = "Browser chrome", .accessibility_label = "Mini", .gpu_backend = "metal", .gpu_pixel_format = "bgra8_unorm", .gpu_present_mode = "timer", .gpu_alpha_mode = "opaque", .gpu_color_space = "srgb", .gpu_vsync = true },
+                },
+            },
+        },
+    },
+    .security = .{
+        .navigation = .{
+            // A browser's whole job is arbitrary origins. The wildcard is
+            // safe only because the page webview gets no bridge: nothing
+            // here creates it with `bridge: true`, and `js_window_api` is
+            // off, so `window.zero` never reaches a loaded site.
+            .allowed_origins = .{"*"},
+            .external_links = .{ .action = "deny" },
+        },
+    },
+    .web_engine = "chromium",
+    .cef = .{ .dir = "third_party/cef/macos", .auto_install = true },
+}
