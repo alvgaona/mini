@@ -9,14 +9,13 @@ const native_sdk = @import("native_sdk");
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
 const canvas = native_sdk.canvas;
-const geometry = native_sdk.geometry;
 const platform = native_sdk.platform;
 
 const canvas_label = "main-canvas";
 const page_anchor = "page-pane";
 pub const max_url_bytes = 2048;
-pub const max_tabs = 16;
-pub const max_closed = 8;
+const max_tabs = 16;
+const max_closed = 8;
 const max_label_bytes = 24;
 const max_host_bytes = 128;
 
@@ -110,21 +109,15 @@ pub const Tab = struct {
     }
 
     fn setLabel(tab: *Tab, value: []const u8) void {
-        const len = @min(value.len, tab.label_storage.len);
-        @memcpy(tab.label_storage[0..len], value[0..len]);
-        tab.label_len = len;
+        tab.label_len = copyInto(&tab.label_storage, value).len;
     }
 
     fn setUrl(tab: *Tab, value: []const u8) void {
-        const len = @min(value.len, tab.url_storage.len);
-        @memcpy(tab.url_storage[0..len], value[0..len]);
-        tab.url_len = len;
+        tab.url_len = copyInto(&tab.url_storage, value).len;
     }
 
     fn setPending(tab: *Tab, value: []const u8) void {
-        const len = @min(value.len, tab.pending_storage.len);
-        @memcpy(tab.pending_storage[0..len], value[0..len]);
-        tab.pending_len = len;
+        tab.pending_len = copyInto(&tab.pending_storage, value).len;
     }
 };
 
@@ -262,11 +255,8 @@ pub const Model = struct {
         const url_text = if (tab.url_len > 0) tab.url() else tab.pendingUrl();
         if (url_text.len == 0) return;
         if (model.closed_count == max_closed) {
-            for (1..max_closed) |i| {
-                const len = model.closed_lens[i];
-                @memcpy(model.closed_storage[i - 1][0..len], model.closed_storage[i][0..len]);
-                model.closed_lens[i - 1] = len;
-            }
+            std.mem.copyForwards([max_url_bytes]u8, model.closed_storage[0 .. max_closed - 1], model.closed_storage[1..]);
+            std.mem.copyForwards(usize, model.closed_lens[0 .. max_closed - 1], model.closed_lens[1..]);
             model.closed_count -= 1;
         }
         @memcpy(model.closed_storage[model.closed_count][0..url_text.len], url_text);
@@ -276,10 +266,7 @@ pub const Model = struct {
 
     fn removeTab(model: *Model, index: usize) void {
         if (index >= model.tab_count) return;
-        var cursor = index;
-        while (cursor + 1 < model.tab_count) : (cursor += 1) {
-            model.tabs[cursor] = model.tabs[cursor + 1];
-        }
+        std.mem.copyForwards(Tab, model.tabs[index .. model.tab_count - 1], model.tabs[index + 1 .. model.tab_count]);
         model.tab_count -= 1;
         if (model.active >= model.tab_count and model.active > 0) model.active = model.tab_count - 1;
         model.syncAddress();
@@ -327,9 +314,7 @@ fn dropFavicon(tab: *Tab, fx: *Effects) void {
 fn tabTitle(tab: *const Tab) []const u8 {
     const full = if (tab.url_len > 0) tab.url() else tab.pendingUrl();
     if (full.len == 0) return "new tab";
-    const after_scheme = if (std.mem.indexOf(u8, full, "://")) |at| full[at + 3 ..] else full;
-    const end = std.mem.indexOfScalar(u8, after_scheme, '/') orelse after_scheme.len;
-    return after_scheme[0..end];
+    return hostOf(full);
 }
 
 pub const Effects = native_sdk.Effects(Msg);
@@ -492,9 +477,6 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 }
             }
         },
-        // The Msg exists so the loaded pixels trigger a rebuild; a miss
-        // or failure leaves the id skipped at draw, which renders as no
-        // icon - nothing to clear.
         // The Msg exists so freshly registered pixels trigger a rebuild;
         // a miss leaves the id skipped at draw - no icon, nothing to
         // clear.
@@ -541,8 +523,6 @@ pub const cmd_toggle_focus = "mini.toggle-focus"; // primary+shift+F
 pub const cmd_new_tab = "mini.new-tab"; // primary+T
 pub const cmd_close_tab = "mini.close-tab"; // primary+W
 pub const cmd_reopen_tab = "mini.reopen-tab"; // primary+shift+T
-pub const cmd_focus_address = "mini.focus-address"; // primary+L
-pub const cmd_find = "mini.find"; // primary+F
 
 pub fn windowButtonsHidden(model: *const Model) bool {
     return model.focus;
@@ -553,12 +533,12 @@ pub fn command(name: []const u8) ?Msg {
     if (std.mem.eql(u8, name, cmd_new_tab)) return .new_tab;
     if (std.mem.eql(u8, name, cmd_close_tab)) return .close_active_tab;
     if (std.mem.eql(u8, name, cmd_reopen_tab)) return .reopen_tab;
-    if (std.mem.eql(u8, name, cmd_focus_address)) return .focus_address;
+    if (std.mem.eql(u8, name, "mini.focus-address")) return .focus_address;
     if (std.mem.eql(u8, name, "mini.zoom-in")) return .zoom_in;
     if (std.mem.eql(u8, name, "mini.zoom-out")) return .zoom_out;
     if (std.mem.eql(u8, name, "mini.zoom-reset")) return .zoom_reset;
     if (std.mem.eql(u8, name, "mini.copy-url")) return .copy_url;
-    if (std.mem.eql(u8, name, cmd_find)) return .find_toggle;
+    if (std.mem.eql(u8, name, "mini.find")) return .find_toggle;
     if (std.mem.eql(u8, name, "mini.find-next")) return .find_next;
     if (std.mem.eql(u8, name, "mini.find-prev")) return .find_prev;
     if (std.mem.eql(u8, name, "mini.dismiss")) return .dismiss;
@@ -627,10 +607,6 @@ pub fn main(init: std.process.Init) !void {
         .app_name = "mini",
         .window_title = "Mini",
         .bundle_id = "dev.native_sdk.mini",
-        .icon_path = "assets/icon.png",
-        .default_frame = geometry.RectF.init(0, 0, window_width, window_height),
-        .restore_state = true,
-        .js_window_api = false,
         .security = .{
             .permissions = &app_permissions,
             .navigation = .{ .allowed_origins = &.{"*"} },
