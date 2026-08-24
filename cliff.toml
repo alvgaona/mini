@@ -5,7 +5,7 @@ body = """
 {% else %}## Unreleased
 {% endif %}
 {% for group, commits in commits | group_by(attribute="group") %}### {{ group }}
-{% for commit in commits %}- {{ commit.message | upper_first }}
+{% for commit in commits %}- {{ commit.message | upper_first }}{% if commit.remote.pr_number %} ([#{{ commit.remote.pr_number }}](https://github.com/alvgaona/mini/pull/{{ commit.remote.pr_number }})){% endif %}
 {% endfor %}
 {% endfor %}
 """
@@ -22,3 +22,7 @@ commit_parsers = [
   { message = "^chore|^ci|^style", skip = true },
   { message = ".*", group = "Other" },
 ]
+
+[remote.github]
+owner = "alvgaona"
+repo = "mini"

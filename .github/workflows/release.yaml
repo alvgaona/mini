@@ -48,6 +48,8 @@ jobs:
 
       - name: release notes
         working-directory: mini
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bunx git-cliff --latest --strip header -o release-notes.md
 
       - uses: softprops/action-gh-release@v2
