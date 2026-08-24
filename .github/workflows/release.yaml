@@ -14,28 +14,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: mini
+
       - uses: actions/checkout@v4
         with:
           repository: alvgaona/native
           ref: mini
           path: native
+
       - uses: oven-sh/setup-bun@v2
-      - name: Install native CLI
+
+      - name: install native cli
         run: bun install -g @native-sdk/cli
-      - name: Build
+
+      - name: build
         working-directory: mini
         run: NATIVE_SDK_PATH="$GITHUB_WORKSPACE/native" native build --yes -Dweb-engine=system
-      # Packaging must use the fork's CLI (the released CLI generates the
-      # Info.plist itself and lacks the fork's packaging changes).
-      - name: Build fork CLI
+
+      - name: build fork cli
         working-directory: native
         run: "$HOME/.native/toolchains"/zig-*/zig build cli
-      - name: Package
+
+      - name: package
         working-directory: mini
         run: "$GITHUB_WORKSPACE/native/zig-out/bin/native" package --target macos --signing adhoc --web-engine system
-      - name: Zip
+
+      - name: zip
         working-directory: mini
         run: ditto -c -k --keepParent zig-out/package/mini.app mini.app.zip
+
       - uses: softprops/action-gh-release@v2
         with:
           files: mini/mini.app.zip
