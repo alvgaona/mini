@@ -1,0 +1,18 @@
+pre-commit:
+  jobs:
+    - name: check
+      run: NATIVE_SDK_PATH="${NATIVE_SDK_PATH:-$HOME/git/native}" native check --strict
+
+commit-msg:
+  jobs:
+    # Conventional commits, dependency-free: this grep is all the
+    # commitlint mini needs until something parses the history.
+    - name: conventional
+      run: |
+        grep -qE '^(feat|fix|docs|refactor|test|chore|ci|style|perf|build)(\([a-z0-9-]+\))?!?: .+' {1} \
+          || { echo "commit message must be conventional: type(scope): subject" >&2; exit 1; }
+
+pre-push:
+  jobs:
+    - name: test
+      run: NATIVE_SDK_PATH="${NATIVE_SDK_PATH:-$HOME/git/native}" native test --yes

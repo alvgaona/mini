@@ -49,3 +49,4 @@ jobs:
           files: mini/mini.app.zip
           # Any dash-suffixed tag (v0.1.0-a.1) is a pre-release.
           prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
