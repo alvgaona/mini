@@ -5,12 +5,8 @@ pre-commit:
 
 commit-msg:
   jobs:
-    # Conventional commits, dependency-free: this grep is all the
-    # commitlint mini needs until something parses the history.
-    - name: conventional
-      run: |
-        grep -qE '^(feat|fix|docs|refactor|test|chore|ci|style|perf|build)(\([a-z0-9-]+\))?!?: .+' {1} \
-          || { echo "commit message must be conventional: type(scope): subject" >&2; exit 1; }
+    - name: commitlint
+      run: bunx commitlint --edit {1}
 
 pre-push:
   jobs:

@@ -8,3 +8,4 @@ zig-out/
 .zig-cache/
 third_party/cef/
 
+node_modules/

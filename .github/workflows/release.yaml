@@ -14,6 +14,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: mini
+          # git-cliff needs tag history for the release-notes range.
+          fetch-depth: 0
 
       - uses: actions/checkout@v4
         with:
@@ -44,9 +46,13 @@ jobs:
         working-directory: mini
         run: ditto -c -k --keepParent zig-out/package/mini.app mini.app.zip
 
+      - name: release notes
+        working-directory: mini
+        run: bunx git-cliff --latest --strip header -o release-notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: mini/mini.app.zip
+          body_path: mini/release-notes.md
           # Any dash-suffixed tag (v0.1.0-a.1) is a pre-release.
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
