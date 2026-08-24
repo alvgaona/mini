@@ -12,8 +12,7 @@
     <row gap="2" padding="2" cross="center">
     <for each="tabRows" key="index" as="t">
       <!-- A pressable row, not a button: the row press selects, and the
-           close button INSIDE it claims its own press through ordinary
-           fall-through - one tab, two targets, no outboard chrome. -->
+           close button inside claims its own through fall-through. -->
       <if test="{t.active}">
         <row on-press="select_tab:{t.index}" background="surface" radius="sm" padding="2" gap="4" cross="center" label="{t.title}">
           <image image="{t.favicon}" width="16" height="16" label="" />

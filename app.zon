@@ -5,20 +5,18 @@
     .description = "A minimal personal web browser: one address bar, one Chromium page, no state.",
     .version = "0.1.0",
     .icons = .{"assets/icon.png"},
-    // Accent shows in exactly one place - the load bar - so this IS
-    // the progress color: macOS system blue.
+    // The accent shows only on the load bar. macOS system blue.
     .theme_accent = "#0a84ff",
     .platforms = .{"macos"},
-    // bluetooth: the cross-device passkey flow's BLE proximity check -
-    // packaged builds get NSBluetoothAlwaysUsageDescription from it.
+    // bluetooth covers the passkey flow's BLE proximity check; packaged
+    // builds take NSBluetoothAlwaysUsageDescription from it.
     .permissions = .{ "view", "command", "clipboard", "bluetooth" },
     .capabilities = .{ "native_views", "gpu_surfaces", "webview", "shortcuts" },
     .shortcuts = .{
         .{ .id = "mini.toggle-focus", .key = "f", .modifiers = .{ "primary", "shift" } },
         .{ .id = "mini.new-tab", .key = "t", .modifiers = .{"primary"} },
-        // Cmd+W is ours: a registered shortcut is swallowed app-wide
-        // before the responder chain, so the window's own close-on-W
-        // never runs - which is the point: tabs close first, the app
+        // The app swallows Cmd+W before the responder chain, so the
+        // window's own close-on-W never runs. Tabs close first, the app
         // only when none remain.
         .{ .id = "mini.close-tab", .key = "w", .modifiers = .{"primary"} },
         .{ .id = "mini.reload", .key = "r", .modifiers = .{"primary"} },
@@ -64,10 +62,9 @@
     },
     .security = .{
         .navigation = .{
-            // A browser's whole job is arbitrary origins. The wildcard is
-            // safe only because the page webview gets no bridge: nothing
-            // here creates it with `bridge: true`, and `js_window_api` is
-            // off, so `window.zero` never reaches a loaded site.
+            // A browser's job is arbitrary origins. The wildcard is
+            // safe only because the page webview gets no bridge; with
+            // `js_window_api` off, `window.zero` never reaches a site.
             .allowed_origins = .{"*"},
             .external_links = .{ .action = "deny" },
         },

@@ -1,11 +1,12 @@
 //! Mini: a personal browser. Native chrome on a Metal canvas; each tab
-//! is an owned webview pane the model declares, with engine history and
-//! window.open popups (SSO) adopted as tabs.
+//! is an owned webview pane, and window.open popups become tabs.
 
 const std = @import("std");
 const runner = @import("runner");
 const native_sdk = @import("native_sdk");
 
+/// Routes panics through the SDK so a crash lands in the app's log
+/// instead of the terminal Mini was never launched from.
 pub const panic = std.debug.FullPanic(native_sdk.debug.capturePanic);
 
 const canvas = native_sdk.canvas;
@@ -13,6 +14,8 @@ const platform = native_sdk.platform;
 
 const canvas_label = "main-canvas";
 const page_anchor = "page-pane";
+/// URL capacity for the address field and every stored URL. Longer
+/// input truncates rather than failing.
 pub const max_url_bytes = 2048;
 const max_tabs = 16;
 const max_closed = 8;
@@ -40,70 +43,125 @@ const shell_windows = [_]native_sdk.ShellWindow{.{
 }};
 const shell_scene: native_sdk.ShellConfig = .{ .windows = &shell_windows };
 
-// ------------------------------------------------------------------ model
+// model
 
+/// Everything that can change the model. The markup emits the bound
+/// variants; the rest arrive from shortcuts, the engine, or effects.
 pub const Msg = union(enum) {
+    /// A keystroke in the address field.
     address_edit: canvas.TextInputEvent,
+    /// Submit the address field, navigating the active tab.
     navigate,
+    /// Step the active tab back through engine history.
     back,
+    /// Step the active tab forward through engine history.
     forward,
+    /// Reload the active tab.
     reload,
+    /// Open a blank tab and make it active.
     new_tab,
+    /// Close the tab at this index.
     close_tab: usize,
+    /// Make the tab at this index active.
     select_tab: usize,
+    /// Enter or leave focus mode.
     toggle_focus,
+    /// Close the active tab, or quit once none remain.
     close_active_tab,
+    /// Reopen the most recently closed tab.
     reopen_tab,
+    /// Put the cursor in the address field.
     focus_address,
+    /// Raise the active tab's zoom one step, up to 5.0.
     zoom_in,
+    /// Lower the active tab's zoom one step, down to 0.25.
     zoom_out,
+    /// Return the active tab to 1.0 zoom.
     zoom_reset,
+    /// Copy the active tab's committed URL to the clipboard.
     copy_url,
+    /// Show or hide the find bar, clearing the query on the way out.
     find_toggle,
+    /// A keystroke in the find field.
     find_edit: canvas.TextInputEvent,
+    /// Jump to the next match, ignored while the find bar is closed.
     find_next,
+    /// Jump to the previous match, ignored while the find bar is closed.
     find_prev,
+    /// Escape. Closes the find bar.
     dismiss,
+    /// The engine committed a navigation in one of the panes.
     nav: platform.WebViewNavigationEvent,
+    /// A page called window.open; the new pane is adopted as a tab.
     popup_opened: platform.WebViewPopupEvent,
+    /// A popup pane closed itself, so its tab goes with it.
     popup_closed: platform.WebViewPopupClosedEvent,
+    /// The engine's load fraction for one pane.
     load_progress: platform.WebViewLoadProgressEvent,
+    /// A favicon fetch finished, hit or miss.
     favicon_loaded: native_sdk.EffectImageResult,
 
+    /// Variants no markup element emits. The contract check would
+    /// otherwise report them as dead.
     pub const view_unbound = .{ "nav", "popup_opened", "popup_closed", "toggle_focus", "close_active_tab", "reopen_tab", "favicon_loaded", "load_progress", "focus_address", "zoom_in", "zoom_out", "zoom_reset", "copy_url", "find_toggle", "find_prev", "dismiss" };
 };
 
+/// One webview pane and the chrome state that belongs to it. Every
+/// string is inline storage, so a Tab is copyable and the model owns no
+/// heap.
 pub const Tab = struct {
+    /// Pane label, `t{serial}` for a tab Mini opened or the host's own
+    /// label for an adopted popup. Read it through `label()`.
     label_storage: [max_label_bytes]u8 = undefined,
+    /// Bytes used in `label_storage`.
     label_len: usize = 0,
+    /// The URL the engine last committed. Read it through `url()`.
     url_storage: [max_url_bytes]u8 = undefined,
+    /// Bytes used in `url_storage`.
     url_len: usize = 0,
+    /// The URL handed to the pane. Empty means the pane never
+    /// navigates. Read it through `pendingUrl()`.
     pending_storage: [max_url_bytes]u8 = undefined,
+    /// Bytes used in `pending_storage`.
     pending_len: usize = 0,
+    /// Whether engine history has an entry behind this one.
     can_go_back: bool = false,
+    /// Whether engine history has an entry ahead of this one.
     can_go_forward: bool = false,
+    /// Bumped to ask the pane to go back; the value itself is inert.
     back_token: u64 = 0,
+    /// Bumped to ask the pane to go forward; the value itself is inert.
     forward_token: u64 = 0,
+    /// Bumped to ask the pane to reload; the value itself is inert.
     reload_token: u64 = 0,
+    /// Whether the tab was adopted from window.open rather than opened
+    /// by the user. Popups never enter the reopen stack.
     is_popup: bool = false,
+    /// Page scale, clamped to 0.25 through 5.0.
     zoom: f64 = 1.0,
-    /// Engine load fraction; 0 outside a load (the bar only shows
-    /// strictly between 0 and 1).
+    /// Engine load fraction. 0 outside a load; the bar shows only
+    /// strictly between 0 and 1.
     progress: f64 = 0,
-    /// Registered favicon ImageId; 0 draws nothing while loading or on
-    /// a miss. Keyed to the host so in-site navigation never refetches.
+    /// Favicon ImageId; 0 draws nothing. Keyed to the host, so in-site
+    /// navigation never refetches.
     favicon_id: u64 = 0,
+    /// Host `favicon_id` was fetched for.
     favicon_host_storage: [max_host_bytes]u8 = undefined,
+    /// Bytes used in `favicon_host_storage`.
     favicon_host_len: usize = 0,
 
+    /// The pane label, which is how engine events find their tab.
     pub fn label(tab: *const Tab) []const u8 {
         return tab.label_storage[0..tab.label_len];
     }
 
+    /// The URL the engine last committed, which may differ from the one
+    /// Mini asked for after a redirect.
     pub fn url(tab: *const Tab) []const u8 {
         return tab.url_storage[0..tab.url_len];
     }
 
+    /// The URL the pane is asked to load. Empty leaves the pane alone.
     pub fn pendingUrl(tab: *const Tab) []const u8 {
         return tab.pending_storage[0..tab.pending_len];
     }
@@ -121,58 +179,78 @@ pub const Tab = struct {
     }
 };
 
+/// One row of the tab strip, built per frame into the arena. Markup
+/// binds these fields directly.
 pub const TabRow = struct {
+    /// Position in the strip, which is also the `select_tab` payload.
     index: usize,
+    /// The page's host, or "new tab" while the tab is blank.
     title: []const u8,
+    /// Whether this row is the active tab.
     active: bool,
+    /// Favicon ImageId; 0 draws nothing.
     favicon: u64,
 };
 
+/// The whole application state. Fixed capacity throughout, so the
+/// model never allocates and nothing here outlives the app.
 pub const Model = struct {
+    /// Tab storage. Only the first `tab_count` entries are live; the
+    /// rest are undefined.
     tabs: [max_tabs]Tab = undefined,
+    /// Live entries in `tabs`, capped at 16.
     tab_count: usize = 0,
+    /// Index of the active tab, meaningless while `tab_count` is 0.
     active: usize = 0,
-    /// Monotonic label serial: closed labels are never reused, so a
-    /// close and a create in the same frame can never alias.
+    /// Monotonic: closed labels never come back, so a close and a
+    /// create in one frame cannot alias.
     tab_serial: u64 = 0,
-    /// Monotonic favicon ImageId (0 is the no-image sentinel): fresh
-    /// content never re-keys a live id.
+    /// Monotonic; 0 means no image, so fresh content never re-keys a
+    /// live id.
     favicon_serial: u64 = 1,
+    /// The address field's text, which tracks the active tab except
+    /// while it is being edited.
     address: canvas.TextBuffer(max_url_bytes) = .{},
-    /// Focus mode hides all chrome; the pane anchor grows to the whole
-    /// window and every tab re-snaps to it on the next frame.
+    /// Hides all chrome. The pane anchor grows to the whole window and
+    /// every tab re-snaps to it next frame.
     focus: bool = false,
-    /// Session-only reopen stack (cmd+shift+T): the last few closed
-    /// tabs' URLs, newest last, gone when the app is. Blank tabs and
-    /// popups never push - there is nothing honest to restore.
+    /// cmd+shift+T. Closed tabs' URLs, newest last, gone with the app.
+    /// Blank tabs and popups never push.
     closed_storage: [max_closed][max_url_bytes]u8 = undefined,
+    /// Bytes used in each `closed_storage` slot.
     closed_lens: [max_closed]usize = @splat(0),
+    /// Live entries in `closed_storage`; the oldest drops at 8.
     closed_count: usize = 0,
-    /// cmd+L. Edge-triggered by autofocus; cleared by typing,
-    /// navigating, or switching tabs. ponytail: cmd+L after clicking
-    /// into the page without typing leaves the flag stale-true and the
-    /// second press does nothing - a blur signal would fix it.
+    /// cmd+L. Autofocus edge-triggers it; typing, navigating, or
+    /// switching tabs clears it. ponytail: a click into the page leaves
+    /// it stale-true and the next cmd+L does nothing; a blur signal
+    /// would fix it.
     address_focus_requested: bool = false,
+    /// Whether the find bar is showing.
     find_open: bool = false,
+    /// The find field's text, handed to the active pane as its query.
     find: canvas.TextBuffer(256) = .{},
+    /// Bumped to ask the pane for the next match; inert while closed.
     find_forward_token: u64 = 0,
+    /// Bumped to ask the pane for the previous match; inert while closed.
     find_backward_token: u64 = 0,
 
     /// Markup binds `tabRows`/`addressText` and the two disabled fns;
-    /// the backing stores and selection bookkeeping are update-only.
+    /// the rest is update-only.
     pub const view_unbound = .{ "tabs", "address", "tab_serial", "favicon_serial", "tab_count", "active", "focus", "closed_storage", "closed_lens", "closed_count", "address_focus_requested", "find", "find_open", "find_forward_token", "find_backward_token" };
 
+    /// The address field's text, bound by the markup.
     pub fn addressText(model: *const Model) []const u8 {
         return model.address.text();
     }
 
+    /// Whether to draw the toolbar and tab strip, which focus mode hides.
     pub fn chromeVisible(model: *const Model) bool {
         return !model.focus;
     }
 
-    /// Edge-triggered by the markup's autofocus: turns true when the
-    /// active tab is blank (startup, cmd+T), so the cursor lands in the
-    /// address bar ready to type.
+    /// True while the active tab is blank, at startup and on cmd+T, so
+    /// the cursor lands in the address bar.
     pub fn addressWantsFocus(model: *const Model) bool {
         if (model.address_focus_requested) return true;
         if (model.tab_count == 0) return true;
@@ -180,35 +258,43 @@ pub const Model = struct {
         return tab.url_len == 0 and tab.pending_len == 0;
     }
 
+    /// Whether the find bar is showing. Also drives its autofocus.
     pub fn findOpen(model: *const Model) bool {
         return model.find_open;
     }
 
+    /// The find field's text, bound by the markup.
     pub fn findText(model: *const Model) []const u8 {
         return model.find.text();
     }
 
+    /// Whether the active tab is mid-load, which is when the bar shows.
     pub fn loading(model: *const Model) bool {
         if (model.tab_count == 0) return false;
         const p = model.tabs[model.active].progress;
         return p > 0.0 and p < 1.0;
     }
 
+    /// The active tab's load fraction, for the progress bar.
     pub fn loadProgress(model: *const Model) f32 {
         if (model.tab_count == 0) return 0;
         return @floatCast(model.tabs[model.active].progress);
     }
 
+    /// Whether the back button is dead, which it also is with no tabs.
     pub fn backDisabled(model: *const Model) bool {
         if (model.tab_count == 0) return true;
         return !model.tabs[model.active].can_go_back;
     }
 
+    /// Whether the forward button is dead, which it also is with no tabs.
     pub fn forwardDisabled(model: *const Model) bool {
         if (model.tab_count == 0) return true;
         return !model.tabs[model.active].can_go_forward;
     }
 
+    /// Build the tab strip into the frame arena. An allocation failure
+    /// returns an empty strip rather than failing the frame.
     pub fn tabRows(model: *const Model, arena: std.mem.Allocator) []const TabRow {
         const out = arena.alloc(TabRow, model.tab_count) catch return &.{};
         for (model.tabs[0..model.tab_count], 0..) |*tab, index| {
@@ -279,13 +365,10 @@ fn hostOf(url_text: []const u8) []const u8 {
     return after_scheme[0..end];
 }
 
-/// Load the tab's favicon when its host changes: the site's own
-/// /favicon.ico through the one-call image cascade (fetch, platform
-/// decode - CGImageSource reads .ico - register, cache). A miss leaves
-/// id 0 and the row simply shows no icon; no third-party icon service.
-/// ponytail: 16 image slots total, so a full window of distinct hosts
-/// fills the registry and later tabs go iconless - raise
-/// app.zon .images if that ever matters.
+/// One fetch per host, from the site's own /favicon.ico through the
+/// image cascade; CGImageSource reads .ico. A miss leaves id 0 and no
+/// icon. ponytail: 16 image slots total, so a window of distinct hosts
+/// leaves later tabs iconless; raise app.zon .images if it matters.
 fn ensureFavicon(model: *Model, tab: *Tab, fx: *Effects) void {
     const host = hostOf(tab.url());
     if (host.len == 0 or host.len > max_host_bytes) return;
@@ -317,10 +400,12 @@ fn tabTitle(tab: *const Tab) []const u8 {
     return hostOf(full);
 }
 
+/// The effect queue `update` writes to for anything outside the model:
+/// image loads, the clipboard, quitting.
 pub const Effects = native_sdk.Effects(Msg);
 
-/// `example.com` is an address, not a search term: Mini prefixes a
-/// scheme and navigates. Anything already carrying one passes through.
+/// A bare `example.com` is an address, not a search term, so it gets a
+/// scheme. Input that already carries one passes through.
 pub fn normalizeUrl(input: []const u8, out: []u8) []const u8 {
     const trimmed = std.mem.trim(u8, input, " \t\r\n");
     if (trimmed.len == 0) return out[0..0];
@@ -336,6 +421,15 @@ pub fn normalizeUrl(input: []const u8, out: []u8) []const u8 {
     @memcpy(out[0..prefix.len], prefix);
     @memcpy(out[prefix.len..][0..trimmed.len], trimmed);
     return out[0 .. prefix.len + trimmed.len];
+}
+
+test normalizeUrl {
+    var out: [max_url_bytes]u8 = undefined;
+    try std.testing.expectEqualStrings("https://example.com", normalizeUrl("example.com", &out));
+    try std.testing.expectEqualStrings("https://example.com/a?b=c", normalizeUrl("  example.com/a?b=c\n", &out));
+    try std.testing.expectEqualStrings("http://localhost:5173", normalizeUrl("http://localhost:5173", &out));
+    try std.testing.expectEqualStrings("about:blank", normalizeUrl("about:blank", &out));
+    try std.testing.expectEqualStrings("", normalizeUrl("   ", &out));
 }
 
 fn copyInto(out: []u8, text: []const u8) []const u8 {
@@ -356,6 +450,8 @@ fn openTab(model: *Model, url: []const u8) void {
     model.syncAddress();
 }
 
+/// Apply one message. The only place the model changes, and the only
+/// place effects are queued.
 pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
     switch (msg) {
         .address_edit => |edit| {
@@ -382,7 +478,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             tab.reload_token +%= 1;
         },
         .toggle_focus => model.focus = !model.focus,
-        // Tabs absorb Cmd+W; the app itself only goes when none remain.
+        // Tabs absorb Cmd+W; the app only quits when none remain.
         .close_active_tab => {
             if (model.tab_count == 0) {
                 fx.quitApp();
@@ -392,8 +488,7 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             dropFavicon(&model.tabs[model.active], fx);
             model.removeTab(model.active);
         },
-        // A new tab is nothing at all - no webview until an address is
-        // typed; the empty pane URL never creates.
+        // A new tab has no URL, so no webview pane exists yet.
         .new_tab => openTab(model, ""),
         .reopen_tab => {
             if (model.closed_count == 0) return;
@@ -445,11 +540,10 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
             model.find_open = false;
             model.find.clear();
         },
-        // Event slices are borrowed for this dispatch: copy everything
-        // the model keeps.
+        // Event slices live for one dispatch; copy what the model keeps.
         .load_progress => |load| {
             const tab = model.findTab(load.label) orelse return;
-            // 1.0 is the engine saying done: clear so the bar hides.
+            // 1.0 means the engine finished, so clear it and the bar hides.
             tab.progress = if (load.progress >= 0.999) 0 else load.progress;
         },
         .nav => |nav| {
@@ -477,14 +571,13 @@ pub fn update(model: *Model, msg: Msg, fx: *Effects) void {
                 }
             }
         },
-        // The Msg exists so freshly registered pixels trigger a rebuild;
-        // a miss leaves the id skipped at draw - no icon, nothing to
-        // clear.
+        // Exists so newly registered pixels trigger a rebuild; a miss
+        // just draws no icon.
         .favicon_loaded => {},
     }
 }
 
-// ------------------------------------------------------------------ panes
+// panes
 
 const MiniApp = native_sdk.UiApp(Model, Msg);
 
@@ -496,19 +589,15 @@ fn webPanes(model: *const Model, out: []MiniApp.WebViewPane) usize {
             .anchor = page_anchor,
             .owned = true,
             .allows_popups = true,
-            // The popup adoption contract: an empty url never navigates,
-            // so an adopted SSO popup keeps its own redirect chain. A
-            // popup the user explicitly navigates gets a pending url and
-            // behaves like any tab from then on.
+            // An empty url never navigates, so an adopted SSO popup
+            // keeps its own redirect chain.
             .url = tab.pendingUrl(),
             .reload_token = tab.reload_token,
             .back_token = tab.back_token,
             .forward_token = tab.forward_token,
-            // 1, not 0: the canvas sits at zPosition 0, and a webview
-            // RETURNING to 0 ties with it - the host breaks ties by
-            // subview order, which backgrounding inverted, leaving the
-            // page composited behind the opaque canvas. Strictly above
-            // beats tie-break archaeology.
+            // 1, not 0. The canvas sits at zPosition 0, so a webview
+            // back at 0 ties with it and loses to subview order, which
+            // backgrounding inverted, hiding the page behind the canvas.
             .layer = if (index == model.active) 1 else -1,
             .zoom = tab.zoom,
             .find_query = if (index == model.active and model.find_open) model.find.text() else "",
@@ -519,15 +608,22 @@ fn webPanes(model: *const Model, out: []MiniApp.WebViewPane) usize {
     return count;
 }
 
-pub const cmd_toggle_focus = "mini.toggle-focus"; // primary+shift+F
-pub const cmd_new_tab = "mini.new-tab"; // primary+T
-pub const cmd_close_tab = "mini.close-tab"; // primary+W
-pub const cmd_reopen_tab = "mini.reopen-tab"; // primary+shift+T
+/// Shortcut id for focus mode, primary+shift+F in app.zon.
+pub const cmd_toggle_focus = "mini.toggle-focus";
+/// Shortcut id for a new tab, primary+T in app.zon.
+pub const cmd_new_tab = "mini.new-tab";
+/// Shortcut id for closing a tab, primary+W in app.zon.
+pub const cmd_close_tab = "mini.close-tab";
+/// Shortcut id for reopening a tab, primary+shift+T in app.zon.
+pub const cmd_reopen_tab = "mini.reopen-tab";
 
+/// Whether to hide the traffic lights, which focus mode does.
 pub fn windowButtonsHidden(model: *const Model) bool {
     return model.focus;
 }
 
+/// Map a shortcut id from app.zon to its message. An unknown id is
+/// null, which the host drops.
 pub fn command(name: []const u8) ?Msg {
     if (std.mem.eql(u8, name, cmd_toggle_focus)) return .toggle_focus;
     if (std.mem.eql(u8, name, cmd_new_tab)) return .new_tab;
@@ -545,13 +641,22 @@ pub fn command(name: []const u8) ?Msg {
     if (std.mem.eql(u8, name, "mini.reload")) return .reload;
     if (std.mem.eql(u8, name, "mini.back")) return .back;
     if (std.mem.eql(u8, name, "mini.forward")) return .forward;
-    // mini.tab-1 .. mini.tab-9 -> select_tab 0..8; out-of-range
-    // indices are already a select_tab no-op.
+    // mini.tab-1..9 -> select_tab 0..8; out-of-range is already a no-op.
     if (std.mem.startsWith(u8, name, "mini.tab-") and name.len == "mini.tab-".len + 1) {
         const digit = name[name.len - 1];
         if (digit >= '1' and digit <= '9') return .{ .select_tab = digit - '1' };
     }
     return null;
+}
+
+test command {
+    try std.testing.expectEqual(Msg.back, command("mini.back").?);
+    try std.testing.expectEqual(Msg.forward, command("mini.forward").?);
+    try std.testing.expectEqual(@as(usize, 0), command("mini.tab-1").?.select_tab);
+    try std.testing.expectEqual(@as(usize, 8), command("mini.tab-9").?.select_tab);
+    try std.testing.expectEqual(@as(?Msg, null), command("mini.tab-0"));
+    try std.testing.expectEqual(@as(?Msg, null), command("mini.tab-10"));
+    try std.testing.expectEqual(@as(?Msg, null), command("mini.unknown"));
 }
 
 fn mapNavigation(nav: platform.WebViewNavigationEvent) ?Msg {
@@ -571,19 +676,23 @@ fn mapLoadProgress(load: platform.WebViewLoadProgressEvent) ?Msg {
     return .{ .load_progress = load };
 }
 
-// ------------------------------------------------------------------- view
+// view
 
+/// The canvas UI bound to Mini's messages.
 pub const AppUi = canvas.Ui(Msg);
+/// The markup, embedded for release and re-read from disk in dev.
 pub const app_markup = @embedFile("app.native");
 
-// -------------------------------------------------------------------- app
+// app
 
+/// A model holding one blank tab, which is what startup shows.
 pub fn initialModel() Model {
     var model: Model = .{};
     openTab(&model, "");
     return model;
 }
 
+/// Build the app, hand it the initial model, and run until it quits.
 pub fn main(init: std.process.Init) !void {
     const app_state = try MiniApp.create(std.heap.page_allocator, .{
         .name = "mini",

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Release build + package for mini. The fork CLI is mandatory for
-# packaging: the installed CLI generates the Info.plist itself and
-# would drop the bluetooth usage key.
+# Release build and package. Needs the fork CLI, since the installed
+# one regenerates Info.plist and drops the bluetooth usage key.
 set -euo pipefail
 
 sdk="${NATIVE_SDK_PATH:-$HOME/git/native}"
