@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mini
+      # Mini only builds against the SDK fork; the runner checks it out
+      # at the `mini` ref (push that branch on the fork to update CI's SDK).
+      - uses: actions/checkout@v4
+        with:
+          repository: alvgaona/native
+          ref: mini
+          path: native
+      - uses: oven-sh/setup-bun@v2
+      - name: Install native CLI
+        run: bun install -g @native-sdk/cli
+      - name: Test
+        working-directory: mini
+        run: NATIVE_SDK_PATH="$GITHUB_WORKSPACE/native" native test --yes
+      - name: Check
+        working-directory: mini
+        run: NATIVE_SDK_PATH="$GITHUB_WORKSPACE/native" native check --strict
