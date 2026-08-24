@@ -1,9 +1,6 @@
 {
   "name": "mini",
   "private": true,
-  "scripts": {
-    "changelog": "git-cliff -o CHANGELOG.md"
-  },
   "devDependencies": {
     "@commitlint/cli": "^19",
     "@commitlint/config-conventional": "^19",
