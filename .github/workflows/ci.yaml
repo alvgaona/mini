@@ -24,10 +24,10 @@ jobs:
       - name: Install native CLI
         run: bun install -g @native-sdk/cli
 
-      - name: test
+      - name: Run tests
         working-directory: mini
         run: NATIVE_SDK_PATH="$GITHUB_WORKSPACE/native" native test --yes
 
-      - name: check
+      - name: Perform check
         working-directory: mini
         run: NATIVE_SDK_PATH="$GITHUB_WORKSPACE/native" native check --strict

@@ -23,24 +23,24 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - name: install native cli
+      - name: Install Native CLI
         run: bun install -g @native-sdk/cli
 
-      - name: build
+      - name: Build app
         working-directory: mini
         run: NATIVE_SDK_PATH="$GITHUB_WORKSPACE/native" native build --yes -Dweb-engine=system
 
-      - name: build fork cli
+      - name: Build fork CLI
         working-directory: native
         run: |
           "$HOME"/.native/toolchains/zig-*/zig build cli
 
-      - name: package
+      - name: Package app
         working-directory: mini
         run: |
           "$GITHUB_WORKSPACE"/native/zig-out/bin/native package --target macos --signing adhoc --web-engine system
 
-      - name: zip
+      - name: Zip release content
         working-directory: mini
         run: ditto -c -k --keepParent zig-out/package/mini.app mini.app.zip
 
